@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Conn3x
+        env: &gh
+          GH_TOKEN: ${{ github.token }}
+        run: &install |
+          tag=$(gh release view -R conn3xorg/conn3x --json tagName -q .tagName)
+          file="conn3x_${tag#v}_linux_amd64.tar.gz"
+          cd "$RUNNER_TEMP"
+          curl -sSfLO "https://github.com/conn3xorg/conn3x/releases/download/$tag/$file"
+          curl -sSfLO "https://github.com/conn3xorg/conn3x/releases/download/$tag/checksums.txt"
+          grep " $file\$" checksums.txt | sha256sum -c -
+          mkdir -p bin && tar -xzf "$file" -C bin conn3x
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - run: conn3x version
+      - run: conn3x fmt -check -recursive
+      - name: Validate
+        run: conn3x init -backend=false && conn3x validate
+      - name: Validate the example
+        working-directory: examples/local
+        run: conn3x init -backend=false && conn3x validate
+
+  e2e:
+    needs: validate
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [rocky10, fedora45, ubuntu2404, debian13]
+    name: e2e (${{ matrix.distro }})
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The test host images live in the Conn3x repo.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: conn3xorg/conn3x
+          ref: main
+          path: conn3x
+          persist-credentials: false
+          sparse-checkout: test/images
+      - name: Install Conn3x
+        env: *gh
+        run: *install
+      - name: Start the ${{ matrix.distro }} host
+        working-directory: examples/local
+        env:
+          CONTAINERFILE: ${{ github.workspace }}/conn3x/test/images/${{ matrix.distro }}/Containerfile
+          PODMAN: sudo podman
+        run: ./up.sh
+      - name: Apply, then plan again with no changes
+        working-directory: examples/local
+        env:
+          TF_VAR_alice_password: correct horse 9
+        run: |
+          conn3x init
+          conn3x apply -auto-approve
+          conn3x plan -detailed-exitcode
+      # Lists the shares, writes and reads a file as alice, and checks that a
+      # wrong password, a guest on the private share, a guest write to the
+      # public share and port 139 are all refused.
+      - name: Check shares, logins and guest access with smbclient
+        run: |
+          sudo podman exec circuit-samba sh -c 'if command -v apt-get >/dev/null; then DEBIAN_FRONTEND=noninteractive apt-get install -y -qq smbclient iproute2; else dnf -y -q install samba-client iproute; fi'
+          sudo podman exec -i circuit-samba sh -eu <<'EOF'
+          pw='correct horse 9'
+          smbclient -N -L //127.0.0.1 | grep -q family
+          smbclient -N -L //127.0.0.1 | grep -q public
+          echo hello > /tmp/up.txt
+          smbclient //127.0.0.1/family -U "alice%$pw" -c 'put /tmp/up.txt up.txt; get up.txt /tmp/down.txt'
+          cmp /tmp/up.txt /tmp/down.txt
+          [ "$(stat -c %U /srv/samba/family/up.txt)" = alice ]
+          if smbclient //127.0.0.1/family -U 'alice%wrong' -c ls; then exit 1; fi
+          if smbclient //127.0.0.1/family -N -c ls; then exit 1; fi
+          smbclient //127.0.0.1/public -N -c ls
+          if smbclient //127.0.0.1/public -N -c 'put /tmp/up.txt x.txt'; then exit 1; fi
+          if ss -ltn | grep -q ':139 '; then exit 1; fi
+          EOF
+      - name: Clean up
+        if: always()
+        working-directory: examples/local
+        env:
+          PODMAN: sudo podman
+        run: ./down.sh
