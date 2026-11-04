@@ -121,12 +121,13 @@ circuit "samba" {
 
   # testparm parses the new file as smbd will before it replaces the old one,
   # so a bad value fails the apply with smb.conf unchanged: nothing reloads,
-  # and a restart or a reboot still reads the last good config.
+  # and a restart or a reboot still reads the last good config. testparm
+  # only warns about an unknown parameter and exits 0, so that fails too.
   step "config" {
     file {
       path     = "/etc/samba/smb.conf"
       content  = local.smb_conf
-      validate = "testparm -s %s >/dev/null"
+      validate = "out=$(testparm -s %s 2>&1 >/dev/null) || { echo \"$out\"; exit 1; }; if echo \"$out\" | grep -q 'Unknown parameter'; then echo \"$out\"; exit 1; fi"
     }
     notify = [handler.reload]
   }
