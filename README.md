@@ -2,7 +2,7 @@
 
 [![Conn3x grade](https://conn3x.org/circuits/samba/grade.svg)](https://conn3x.org/circuits/samba/grade)
 
-A Conn3x circuit that turns a Linux box into a file server for the Windows, macOS and Linux machines around it, with Samba. You list the shares and who can use them; the circuit installs Samba, creates the folders, writes `smb.conf`, checks it with `testparm`, and adds each user to Samba with the password you pass at run time. It's the file-sharing half of a homelab NAS, or the shared drive in a small office.
+A Conn3x circuit that turns a Linux box into a file server for the Windows, macOS and Linux machines around it, with Samba. You list the shares and who can use them; the circuit installs Samba, creates the folders, checks `smb.conf` with `testparm` before writing it, and adds each user to Samba with the password you pass at run time. It's the file-sharing half of a homelab NAS, or the shared drive in a small office.
 
 The defaults are the ones you'd pick by hand today. SMB1 is off and the oldest dialect accepted is SMB2. NetBIOS is off too, so `nmbd` doesn't run and the server listens on 445 only. On Rocky Linux and Fedora with SELinux enforcing, each share's folder gets the `samba_share_t` label, so smbd can read and write it without turning SELinux off.
 
@@ -94,7 +94,7 @@ On each host, in order:
 1. Installs `samba`.
 2. Creates a Unix account, with no home and no login shell, for each of `users` that doesn't have one.
 3. Creates each share's folder with its `owner`, `group` and `mode`.
-4. Writes `/etc/samba/smb.conf` and checks it with `testparm -s`. A value Samba rejects fails the apply before anything reloads, and the running server keeps what it had.
+4. Writes `/etc/samba/smb.conf`, checking the new file with `testparm -s` before it replaces the old one. A config testparm rejects never replaces the old one: the apply fails, nothing reloads, and a restart or a reboot still reads the last good config.
 5. Restarts smbd on a host's first apply and when `netbios` changes, since that's the only way it picks up which ports to listen on. On Debian and Ubuntu the package has already started it listening on 139 as well as 445.
 6. Starts smbd now and at boot (`smbd` on Debian and Ubuntu, `smb` on the Red Hat family). Stops and disables nmbd unless `netbios` is on.
 7. Writes each password to `/etc/conn3x/samba/<user>`, adds the user to Samba's password database when it's missing from it, and sets the password again when it changes.
@@ -139,7 +139,7 @@ The `[global]` section sets `server role = standalone server`, `security = user`
 
 ## Requirements
 
-Requires Conn3x v0.6.5 or later and systemd on each host, with a package mirror the host can reach. Samba comes from each distribution's own repositories.
+Requires Conn3x v0.7.0 or later and systemd on each host, with a package mirror the host can reach. Samba comes from each distribution's own repositories.
 
 ## Tested on
 
