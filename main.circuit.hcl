@@ -119,21 +119,16 @@ circuit "samba" {
     }
   }
 
+  # testparm parses the new file as smbd will before it replaces the old one,
+  # so a bad value fails the apply with smb.conf unchanged: nothing reloads,
+  # and a restart or a reboot still reads the last good config.
   step "config" {
     file {
-      path    = "/etc/samba/smb.conf"
-      content = local.smb_conf
+      path     = "/etc/samba/smb.conf"
+      content  = local.smb_conf
+      validate = "testparm -s %s >/dev/null"
     }
     notify = [handler.reload]
-  }
-
-  # testparm parses the file as smbd will, so a bad value fails the apply
-  # before anything reloads, and the running server keeps what it had.
-  step "check" {
-    command {
-      command  = "testparm -s /etc/samba/smb.conf >/dev/null"
-      triggers = { config = conn3x_file.samba__config[each.key].revision }
-    }
   }
 
   # smbd only changes the ports it listens on when it restarts, and on
