@@ -73,6 +73,16 @@ jobs:
           conn3x init
           conn3x apply -auto-approve
           conn3x plan -detailed-exitcode
+      # Alice's password reaches the host write-only, so state holds none of
+      # it, and nothing Conn3x writes under .terraform does either.
+      - name: Check the secrets stay out of state
+        working-directory: examples/local
+        run: |
+          test -s terraform.tfstate || { echo "No terraform.tfstate to check." >&2; exit 1; }
+          if grep -rqF --exclude-dir=modules -e 'correct horse 9' terraform.tfstate .terraform/; then
+            echo "Alice's password is in terraform.tfstate or under .terraform/." >&2
+            exit 1
+          fi
       # Lists the shares, writes and reads a file as alice, and checks that a
       # wrong password, a guest on the private share, a guest write to the
       # public share and port 139 are all refused.
