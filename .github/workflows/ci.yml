@@ -67,7 +67,7 @@ jobs:
         run: ./up.sh
       - name: Apply, then plan again with no changes
         working-directory: examples/local
-        env:
+        env: &secrets
           TF_VAR_alice_password: correct horse 9
         run: |
           conn3x init
@@ -103,6 +103,24 @@ jobs:
           if smbclient //127.0.0.1/public -N -c 'put /tmp/up.txt x.txt'; then exit 1; fi
           if ss -ltn | grep -q ':139 '; then exit 1; fi
           EOF
+      # Restarting the container boots systemd again, so this checks smbd
+      # comes back enabled, alice can still log in with the password the
+      # circuit set, and the plan still has nothing to do.
+      - name: Restart the host, then log in as alice and plan with no changes
+        working-directory: examples/local
+        env: *secrets
+        run: |
+          sudo podman restart circuit-samba
+          sudo podman exec circuit-samba timeout 60 systemctl is-system-running --wait || true
+          sudo podman exec -i circuit-samba sh -eu <<'EOF'
+          pw='correct horse 9'
+          for _ in $(seq 30); do smbclient -N -L //127.0.0.1 >/dev/null 2>&1 && break; sleep 1; done
+          echo "after restart" > /tmp/up2.txt
+          smbclient //127.0.0.1/family -U "alice%$pw" -c 'put /tmp/up2.txt up2.txt; get up2.txt /tmp/down2.txt'
+          cmp /tmp/up2.txt /tmp/down2.txt
+          if smbclient //127.0.0.1/family -U 'alice%wrong' -c ls; then exit 1; fi
+          EOF
+          conn3x plan -detailed-exitcode
       - name: Clean up
         if: always()
         working-directory: examples/local
