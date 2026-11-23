@@ -139,7 +139,7 @@ The `[global]` section sets `server role = standalone server`, `security = user`
 
 ## Requirements
 
-Requires Conn3x v0.7.0 or later and systemd on each host, with a package mirror the host can reach. Samba comes from each distribution's own repositories.
+Requires Conn3x v0.28.0 or later and systemd on each host, with a package mirror the host can reach. Samba comes from each distribution's own repositories.
 
 ## Tested on
 

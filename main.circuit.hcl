@@ -137,8 +137,8 @@ circuit "samba" {
   # 445. This runs on a host's first apply and when netbios changes; other
   # changes only need the reload.
   step "restart" {
-    command {
-      command  = "systemctl restart ${local.smbd[each.key]}"
+    service_action {
+      name     = local.smbd[each.key]
       triggers = { netbios = var.netbios }
     }
   }
